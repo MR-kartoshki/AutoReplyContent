@@ -34,8 +34,8 @@ Settings are available in the plugin settings panel.
 
 | Setting | Description | Default |
 |---|---|---|
-| Trigger Prefix | Respond when a message starts with this text. | `Content` |
-| Response Message | Message sent when triggered. | `L.help` |
+| Trigger Prefix | Respond when a message starts with this text. | (blank) |
+| Response Message | Message sent when triggered. | (blank) |
 | Channel ID | Only trigger in this channel. Leave blank for all channels. | (blank) |
 | Delay (ms) | Wait time before sending the reply. | `500` |
 
