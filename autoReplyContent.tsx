@@ -10,12 +10,12 @@ const settings = definePluginSettings({
     triggerPrefix: {
         type: OptionType.STRING,
         description: "Send a response if the message starts with this text",
-        default: "Content",
+        default: "",
     },
     responseMessage: {
         type: OptionType.STRING,
         description: "The message to send when triggered",
-        default: "L.help",
+        default: "",
     },
     channelId: {
         type: OptionType.STRING,
