@@ -1,3 +1,9 @@
+/*
+ * Vencord, a Discord client mod
+ * Copyright (c) 2026 Vendicated and contributors
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 import { definePluginSettings } from "@api/Settings";
 import definePlugin, { OptionType } from "@utils/types";
 import { MessageActions, UserStore } from "@webpack/common";
@@ -11,6 +17,7 @@ const invalidRegexCache: Set<string> = new Set();
 const pendingTimeouts: Set<ReturnType<typeof setTimeout>> = new Set();
 const PROCESSED_MESSAGE_TTL_MS = 5 * 60_000;
 const MAX_PROCESSED_MESSAGE_IDS = 10_000;
+const MAX_DISCORD_MESSAGE_LENGTH = 2_000;
 let isPluginRunning = false;
 
 function parseLines(value: string): string[] {
@@ -114,6 +121,21 @@ function isInCooldown(now: number, lastEventTime: number | undefined, cooldownMs
     return now - lastEventTime < cooldownMs;
 }
 
+function messageMentionsUser(message: any, userId?: string): boolean {
+    if (!userId) return false;
+
+    const mentions = Array.isArray(message?.mentions) ? message.mentions : [];
+    if (mentions.some((mention: any) => mention?.id === userId)) return true;
+
+    const content = typeof message?.content === "string" ? message.content : "";
+    return content.includes(`<@${userId}>`) || content.includes(`<@!${userId}>`);
+}
+
+function clampMessageLength(content: string): string {
+    if (content.length <= MAX_DISCORD_MESSAGE_LENGTH) return content;
+    return content.slice(0, MAX_DISCORD_MESSAGE_LENGTH).trimEnd();
+}
+
 function pruneProcessedMessages(now: number): void {
     for (const [messageId, processedAt] of processedMessageIds) {
         if (now - processedAt < PROCESSED_MESSAGE_TTL_MS) break;
@@ -132,6 +154,7 @@ function hasProcessedMessage(messageId: string, now: number): boolean {
     if (processedMessageIds.has(messageId)) return true;
 
     processedMessageIds.set(messageId, now);
+    pruneProcessedMessages(now);
     return false;
 }
 
@@ -191,10 +214,15 @@ const settings = definePluginSettings({
         description: "Do not trigger in DMs",
         default: false,
     },
+    onlyWhenMentioned: {
+        type: OptionType.BOOLEAN,
+        description: "Only trigger when your user is mentioned",
+        default: false,
+    },
     triggerOnSelfMessages: {
         type: OptionType.BOOLEAN,
         description: "Allow your own messages to trigger auto-replies",
-        default: true,
+        default: false,
     },
     triggerOnBotMessages: {
         type: OptionType.BOOLEAN,
@@ -258,6 +286,7 @@ export default definePlugin({
                 useRegex,
                 onlyInDMs,
                 excludeDMs,
+                onlyWhenMentioned,
                 triggerOnSelfMessages,
                 triggerOnBotMessages,
                 perUserCooldownMs,
@@ -274,6 +303,7 @@ export default definePlugin({
 
             const currentUserId = UserStore?.getCurrentUser?.()?.id;
             if (!triggerOnSelfMessages && currentUserId && message.author.id === currentUserId) return;
+            if (onlyWhenMentioned && !messageMentionsUser(message, currentUserId)) return;
 
             const trimmedTriggerPrefix = triggerPrefix.trim();
             if (!trimmedTriggerPrefix) return;
@@ -316,7 +346,7 @@ export default definePlugin({
                 if (isRateLimited(now, safeMaxRepliesPerMinute)) return;
 
                 const selectedResponse = pickRandom(responses);
-                const renderedResponse = applyTemplate(selectedResponse, message).trim();
+                const renderedResponse = clampMessageLength(applyTemplate(selectedResponse, message).trim());
                 if (!renderedResponse) return;
 
                 console.log("[AutoReplyContent] Sending: " + renderedResponse);
