@@ -5,9 +5,12 @@ import { MessageActions, UserStore } from "@webpack/common";
 const lastMessageIds: Map<string, string> = new Map();
 const userCooldowns: Map<string, number> = new Map();
 const channelCooldowns: Map<string, number> = new Map();
+const processedMessageIds: Map<string, number> = new Map();
 const sentReplyTimestamps: number[] = [];
 const invalidRegexCache: Set<string> = new Set();
 const pendingTimeouts: Set<ReturnType<typeof setTimeout>> = new Set();
+const PROCESSED_MESSAGE_TTL_MS = 5 * 60_000;
+const MAX_PROCESSED_MESSAGE_IDS = 10_000;
 let isPluginRunning = false;
 
 function parseLines(value: string): string[] {
@@ -109,6 +112,27 @@ function isRateLimited(now: number, maxRepliesPerMinute: number): boolean {
 function isInCooldown(now: number, lastEventTime: number | undefined, cooldownMs: number): boolean {
     if (cooldownMs <= 0 || lastEventTime == null) return false;
     return now - lastEventTime < cooldownMs;
+}
+
+function pruneProcessedMessages(now: number): void {
+    for (const [messageId, processedAt] of processedMessageIds) {
+        if (now - processedAt < PROCESSED_MESSAGE_TTL_MS) break;
+        processedMessageIds.delete(messageId);
+    }
+
+    while (processedMessageIds.size > MAX_PROCESSED_MESSAGE_IDS) {
+        const oldestMessageId = processedMessageIds.keys().next().value;
+        if (!oldestMessageId) break;
+        processedMessageIds.delete(oldestMessageId);
+    }
+}
+
+function hasProcessedMessage(messageId: string, now: number): boolean {
+    pruneProcessedMessages(now);
+    if (processedMessageIds.has(messageId)) return true;
+
+    processedMessageIds.set(messageId, now);
+    return false;
 }
 
 const settings = definePluginSettings({
@@ -213,6 +237,7 @@ export default definePlugin({
         lastMessageIds.clear();
         userCooldowns.clear();
         channelCooldowns.clear();
+        processedMessageIds.clear();
         sentReplyTimestamps.length = 0;
         invalidRegexCache.clear();
     },
@@ -243,6 +268,7 @@ export default definePlugin({
             if (!message?.content || typeof message.content !== "string") return;
             if (!message.channel_id || typeof message.channel_id !== "string") return;
             if (!message.id || typeof message.id !== "string") return;
+            if (hasProcessedMessage(message.id, Date.now())) return;
             if (!message.author?.id) return;
             if (!triggerOnBotMessages && message.author?.bot) return;
 
